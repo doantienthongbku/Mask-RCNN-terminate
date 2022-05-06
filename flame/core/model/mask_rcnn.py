@@ -8,11 +8,10 @@ import torch.optim as optim
 import torch.utils.data
 from torch.autograd import Variable
 
-import torchvision.models as models
-from torchvision.models.feature_extraction import create_feature_extractor
-
 # import function and class support from other file
 from loss.loss import *
+import utils
+from backbone.resnet50 import *
 
 
 ########################################################
@@ -45,29 +44,6 @@ class SamePad2d(nn.Module):
     def __repr__(self):
         return self.__class__.__name__
 
-
-########################################################
-# Backbone
-########################################################
-
-class ResNet50_extract_feature(nn.Module):
-    """Extract feature from ResNet50
-    """
-    def __init__(self):
-        super(ResNet50_extract_feature, self).__init__()
-
-        net = models.ResNet50(pretrained=True)
-        # create feature extractor from ResNet50 network
-        self.body = create_feature_extractor(
-            net, return_nodes={f'layer{k}': str(v)
-                             for v, k in enumerate([1, 2, 3, 4])})
-        
-    def forward(self, x):
-        x = self.body(x)
-        return x
-
-    def stages(self):
-        return self.body
 
 
 ########################################################
@@ -122,5 +98,61 @@ class RPN(nn.Module):
         rpn_bbox = rpn_bbox.view(x.size()[0], -1, 4)        # [batch, 4, num_anchors]
 
         return [rpn_class_logits, rpn_probs, rpn_bbox]
+
+
+class Classifier(nn.Module):
+
+    def __init__(self, depth, pool_size, image_shape, num_classes):
+        super(Classifier, self).__init__()
+        self.depth = depth
+        self.pool_size = pool_size
+        self.image_shape = image_shape
+        self.num_classes = num_classes
+
+        # conv head in classifier and regression branch
+        self.conv1 = nn.Conv2d(self.depth, 1024, kernel_size=self.pool_size, stride=1)
+        self.bn1 = nn.BatchNorm2d(num_features=1024, eps=0.001, momentum=0.01)
+        self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, stride=1)
+        self.bn2 = nn.BatchNorm2d(num_features=1024, eps=0.001, momentum=0.01)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.linear_class = nn.Linear(1024, self.num_classes)
+        self.softmax = nn.Softmax(dim=1)
+
+        self.linear_bbox = nn.Linear(1024, self.num_classes * 4)
+
+    def forward(self, x):
+        pass
+
+
+class MaskRCNN(nn.Module):
+
+    def __init__(self, config, model_dir):
+        super(MaskRCNN, self).__init__()
+        self.config = config
+        self.model_dir = model_dir
+
+
+    def build(self, config):
+        # Image size must be dividable by 2 multiple times
+        h, w = config.IMAGE_SHAPE[:2]
+        if h / 2**6 != int(h / 2**6) or w / 2**6 != int(w / 2**6):
+            raise Exception("Image size must be dividable by 2 at least 6 times "
+                            "to avoid fractions when downscaling and upscaling."
+                            "For example, use 256, 320, 384, 448, 512, ... etc. ")
+        
+        # build the shared convolutional layers
+        features_map = ResNet50_extract_feature()   # get backbone is resnet50 - C4
+        self.anchors = Variable(torch.from_numpy(utils.generate_anchors(config.RPN_ANCHOR_SCALES,
+                                                                        config.RPN_ANCHOR_RATIOS,
+                                                                        config.BACKBONE_SHAPES,
+                                                                        config.BACKBONE_STRIDES,
+                                                                        config.RPN_ANCHOR_STRIDE)).float(), requires_grad=False)
+        
+        # Set GPU for model
+        if self.config.GPU_COUNT:
+            self.anchors = self.anchors.cuda()
+        
+
 
 
