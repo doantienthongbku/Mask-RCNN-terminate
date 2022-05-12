@@ -1,4 +1,4 @@
-
+import torch.nn as nn
 import torchvision.models as models
 from torchvision.models.feature_extraction import create_feature_extractor
 

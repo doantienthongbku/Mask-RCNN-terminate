@@ -51,6 +51,9 @@ class Config(object):
     # A bigger number improves accuracy of validation stats, but slows
     # down the training.
     VALIDATION_STEPS = 50
+    
+    # spatial scale of feature map
+    SPATIAL_SCALE = 1/32
 
     # The strides of each layer of the FPN Pyramid. These values
     # are based on a Resnet101 backbone.
